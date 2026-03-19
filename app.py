@@ -147,9 +147,11 @@ youtube = build('youtube', 'v3', developerKey=saved_keys["YOUTUBE_KEY"])
 # ==========================================
 # 4. YOUTUBE API & GEMINI FUNCTIONS
 # ==========================================
-def get_youtube_videos(query, max_results):
+def get_youtube_videos(query, max_results, start_year, end_year):
     try:
-        search_request = youtube.search().list(part="id,snippet", q=query, type="video", maxResults=max_results)
+        start_date = f"{start_year}-01-01T00:00:00Z"
+        end_date = f"{end_year}-12-31T23:59:59Z"
+        search_request = youtube.search().list(part="id,snippet", q=query, type="video", publishedAfter=start_date, publishedBefore=end_date, maxResults=max_results)
         search_response = search_request.execute()
         
         videos = []
@@ -160,9 +162,10 @@ def get_youtube_videos(query, max_results):
             
             views = int(stats.get("viewCount", 0))
             likes = int(stats.get("likeCount", 0))
-            score = round(((likes) / views) * 100, 2) if views > 0 else 0
+            comments = int(stats.get("commentCount", 0))
+            score = round(((likes + comments) / views) * 100, 2) if views > 0 else 0
                 
-            videos.append({"id": video_id, "title": title, "views": views, "likes": likes, "score": score})
+            videos.append({"id": video_id, "title": title, "views": views, "likes": likes, "comments": comments, "score": score})
         return videos
     except Exception as e:
         return []
@@ -179,13 +182,36 @@ def generate_note_from_video(video_id, exam_name):
         return "ക്ഷമിക്കണം, ഈ വീഡിയോയ്ക്ക് ട്രാൻസ്ക്രിപ്റ്റ് ലഭ്യമല്ലാത്തതിനാൽ നോട്സ് ഉണ്ടാക്കാൻ സാധിക്കില്ല."
 
 # ==========================================
-# 5. MAIN UI & DROPDOWNS
+# 5. SIDEBAR CONTROLS (തിരികെ കൊണ്ടുവന്നത്!)
+# ==========================================
+st.sidebar.header("⚙️ Search Filters")
+
+years = list(range(2016, 2027))
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    start_year = st.sidebar.selectbox("From Year", options=years, index=5)
+with col2:
+    end_year = st.sidebar.selectbox("To Year", options=years, index=10)
+
+max_vids = st.sidebar.slider("Max Videos to Fetch", 5, 20, 10)
+sort_option = st.sidebar.selectbox("Sort Videos By:", ["Engagement Score", "Views", "Likes", "Comments"])
+target_exam = st.sidebar.selectbox("Target Exam", ["Devaswom Board", "Kerala PSC", "General"])
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🗑️ Reset API Keys"):
+    os.remove(CONFIG_FILE)
+    st.rerun()
+
+# ==========================================
+# 6. MAIN UI & DROPDOWNS
 # ==========================================
 st.title("📚 Smart Study Analyzer")
 st.markdown("##### AI-Powered Video & Notes Discovery Dashboard for PSC")
 st.markdown("---")
 
+st.subheader("🎯 വിഷയം കൃത്യമായി തിരഞ്ഞെടുക്കുക")
 col_a, col_b, col_c = st.columns(3)
+
 with col_a:
     main_topic = st.selectbox("1. പ്രധാന വിഷയം", options=list(SYLLABUS_DATA.keys()))
 with col_b:
@@ -193,30 +219,44 @@ with col_b:
 with col_c:
     sub_topic = st.selectbox("3. ഉപവിഷയം", options=SYLLABUS_DATA[main_topic][sub_category])
 
-search_query = f"{sub_topic} Kerala PSC Malayalam"
+search_query = f"{sub_topic} {target_exam} Malayalam"
 
 # ==========================================
-# 6. TABS
+# 7. TABS
 # ==========================================
-tab1, tab2, tab3 = st.tabs(["📺 യൂട്യൂബ് ക്ലാസുകൾ", "🌐 ഇന്റർനെറ്റ് / AI നോട്സ്", "📂 സേവ് ചെയ്ത നോട്സുകൾ"])
+tab1, tab2, tab3, tab4 = st.tabs(["📺 യൂട്യൂബ് ക്ലാസുകൾ", "🚀 AI Deep Search", "🌐 ഇന്റർനെറ്റ് / AI നോട്സ്", "📂 സേവ് ചെയ്ത നോട്സുകൾ"])
 
+# --- TAB 1 ---
 with tab1:
     if "searched_videos" not in st.session_state: st.session_state.searched_videos = None
     if st.button("🔍 വീഡിയോകൾ തിരയുക", type="primary"):
         with st.spinner(f"യൂട്യൂബിൽ തിരയുന്നു..."):
-            st.session_state.searched_videos = get_youtube_videos(search_query, 10)
+            videos = get_youtube_videos(search_query, max_vids, start_year, end_year)
+            if videos:
+                if sort_option == "Views":
+                    st.session_state.searched_videos = sorted(videos, key=lambda x: x['views'], reverse=True)
+                elif sort_option == "Likes":
+                    st.session_state.searched_videos = sorted(videos, key=lambda x: x['likes'], reverse=True)
+                elif sort_option == "Comments":
+                    st.session_state.searched_videos = sorted(videos, key=lambda x: x['comments'], reverse=True)
+                else:
+                    st.session_state.searched_videos = sorted(videos, key=lambda x: x['score'], reverse=True)
+            else:
+                st.session_state.searched_videos = None
+                st.warning("വീഡിയോകൾ ഒന്നും കണ്ടെത്താനായില്ല.")
 
     if st.session_state.searched_videos:
         for i, vid in enumerate(st.session_state.searched_videos):
-            with st.expander(f"#{i+1}: {vid['title']}"):
+            with st.expander(f"#{i+1}: {vid['title']} ⭐ Score: {vid['score']}"):
                 col1, col2 = st.columns([1, 2])
                 with col1:
                     st.image(f"https://img.youtube.com/vi/{vid['id']}/hqdefault.jpg", use_container_width=True)
+                    st.markdown(f"**👁️ Views:** {vid['views']} | **👍 Likes:** {vid['likes']}")
                     st.markdown(f"[🔗 വീഡിയോ കാണുക](https://www.youtube.com/watch?v={vid['id']})")
                 with col2:
                     if st.button("📝 Video ➔ PSC Notes ആക്കുക", key=f"note_{vid['id']}"):
                         with st.spinner("നോട്സ് തയ്യാറാക്കുന്നു..."):
-                            st.session_state[f"vid_note_{vid['id']}"] = generate_note_from_video(vid['id'], "Kerala PSC")
+                            st.session_state[f"vid_note_{vid['id']}"] = generate_note_from_video(vid['id'], target_exam)
                 
                 if f"vid_note_{vid['id']}" in st.session_state:
                     vid_edited = st.text_area("Video Notes (തിരുത്താം):", value=st.session_state[f"vid_note_{vid['id']}"], height=300, key=f"ta_{vid['id']}")
@@ -224,29 +264,73 @@ with tab1:
                         save_new_note(main_topic, sub_category, sub_topic, vid_edited)
                         st.success("സേവ് ചെയ്തു!")
 
+# --- TAB 2 ---
 with tab2:
+    st.markdown("### 🚀 പുതിയ വാക്കുകൾ വച്ചുള്ള തിരച്ചിൽ")
+    if "deep_searched_videos" not in st.session_state:
+        st.session_state.deep_searched_videos = None
+
+    deep_query = st.text_input("AI കണ്ടെത്തിയ പുതിയ കീവേഡ് ഇവിടെ നൽകുക:")
+    if st.button("Search YouTube with New Keyword", type="primary"):
+        if deep_query:
+            with st.spinner("തിരയുന്നു..."):
+                st.session_state.deep_searched_videos = get_youtube_videos(deep_query, max_vids, start_year, end_year)
+        else:
+            st.warning("കീവേഡ് നൽകുക!")
+
+    if st.session_state.deep_searched_videos:
+        for i, vid in enumerate(st.session_state.deep_searched_videos):
+            with st.expander(f"#{i+1}: {vid['title']}"):
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.image(f"https://img.youtube.com/vi/{vid['id']}/hqdefault.jpg", use_container_width=True)
+                    st.markdown(f"[🔗 വീഡിയോ കാണുക](https://www.youtube.com/watch?v={vid['id']})")
+                with col2:
+                    if st.button("📝 Video ➔ Notes ആക്കുക", key=f"deep_note_{vid['id']}"):
+                        with st.spinner("നോട്സ് തയ്യാറാക്കുന്നു..."):
+                            st.session_state[f"deep_vid_note_{vid['id']}"] = generate_note_from_video(vid['id'], target_exam)
+                
+                if f"deep_vid_note_{vid['id']}" in st.session_state:
+                    deep_edited = st.text_area("Notes:", value=st.session_state[f"deep_vid_note_{vid['id']}"], height=300, key=f"dta_{vid['id']}")
+                    if st.button("💾 സേവ് ചെയ്യുക", key=f"dsave_{vid['id']}"):
+                        save_new_note(main_topic, sub_category, sub_topic, deep_edited)
+                        st.success("സേവ് ചെയ്തു!")
+
+# --- TAB 3 ---
+with tab3:
     st.info(f"തിരഞ്ഞെടുത്ത വിഷയം: **{sub_topic}**")
     if "ai_note" not in st.session_state: st.session_state.ai_note = ""
 
-    if st.button(f"🌐 Generate Precise PSC Notes", type="primary"):
+    if st.button(f"🌐 1. Generate Precise PSC Notes", type="primary"):
         with st.spinner("AI നോട്സ് തയ്യാറാക്കുന്നു..."):
             model = genai.GenerativeModel("gemini-2.5-flash")
-            st.session_state.ai_note = model.generate_content(f"'{sub_topic}' എന്ന വിഷയത്തെക്കുറിച്ച് കേരള PSC പരീക്ഷയ്ക്ക് പഠിക്കാൻ പോയിന്റുകളായി മലയാളത്തിൽ നോട്സ് നൽകുക.").text
+            prompt = f"താങ്കൾ ഒരു കേരള PSC / {target_exam} പരീക്ഷാ വിദഗ്ദ്ധനാണ്. '{sub_topic}' എന്ന വിഷയത്തെക്കുറിച്ച് പഠിക്കാൻ എളുപ്പത്തിനായി വിവരങ്ങൾ പട്ടികകളായും (Tables) പോയിന്റുകളായും മലയാളത്തിൽ തയ്യാറാക്കുക."
+            st.session_state.ai_note = model.generate_content(prompt).text
             st.rerun()
 
     if st.session_state.ai_note:
-        edited_notes = st.text_area("📚 Study Notes:", value=st.session_state.ai_note, height=400)
-        if st.button("💾 സിലബസിലേക്ക് സേവ് ചെയ്യുക", type="primary"):
+        edited_notes = st.text_area("📚 Study Notes (തിരുത്താം):", value=st.session_state.ai_note, height=400)
+        
+        st.markdown("#### 🔍 കൂടുതൽ വിവരങ്ങൾ വേണമെങ്കിൽ:")
+        deep_word = st.text_input("കൂടുതൽ അറിയേണ്ട വാക്ക് നൽകുക:")
+        if deep_word:
+            web_prompt = f"'{deep_word}' എന്ന വിഷയത്തെക്കുറിച്ച് കേരള PSC പരീക്ഷയ്ക്ക് പഠിക്കുന്ന ഒരാൾക്ക് വേണ്ട കൃത്യമായ വിവരങ്ങൾ പോയിന്റുകളായി മലയാളത്തിൽ നൽകുക."
+            st.code(web_prompt, language="markdown")
+            st.markdown("👉 **[Click Here to Open Gemini Website](https://gemini.google.com/app)**", unsafe_allow_html=True)
+            
+        if st.button("💾 2. സിലബസിലേക്ക് സേവ് ചെയ്യുക", type="primary"):
             save_new_note(main_topic, sub_category, sub_topic, edited_notes)
             st.success("സേവ് ചെയ്തു!")
 
-with tab3:
+# --- TAB 4 ---
+with tab4:
     saved_all_notes = load_notes()
     if not saved_all_notes:
         st.info("നോട്സുകൾ ഒന്നും സേവ് ചെയ്തിട്ടില്ല.")
     else:
         for key, note_data in saved_all_notes.items():
             with st.expander(f"📖 {note_data['main_topic']} ➔ {note_data['sub_topic']}"):
+                st.caption(f"Category: {note_data['category']} | Saved on: {note_data['date_saved']}")
                 st.markdown(note_data['content'])
                 if st.button(f"🗑️ Delete", key=f"del_{key}"):
                     delete_note(key)
