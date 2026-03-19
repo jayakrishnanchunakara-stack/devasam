@@ -1,4 +1,5 @@
 import streamlit as st
+import yt_dlp
 import google.generativeai as genai
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -172,14 +173,41 @@ def get_youtube_videos(query, max_results, start_year, end_year):
 
 def generate_note_from_video(video_id, exam_name):
     try:
+        # 1. ആദ്യം സബ്‌ടൈറ്റിൽ ഉണ്ടോ എന്ന് നോക്കുന്നു (Fastest Way)
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'ml', 'hi'])
         transcript_text = " ".join([t['text'] for t in transcript_list])
         
         model = genai.GenerativeModel("gemini-2.5-flash")
         prompt = f"താഴെ നൽകിയിട്ടുള്ളത് ഒരു പഠന വീഡിയോയുടെ ട്രാൻസ്ക്രിപ്റ്റ് ആണ്. ഇതിൽ നിന്നും {exam_name} പരീക്ഷയ്ക്ക് പഠിക്കുന്ന വിദ്യാർത്ഥിക്ക് വേണ്ട കൃത്യമായ വിവരങ്ങൾ മാത്രം പോയിന്റ് അടിസ്ഥാനത്തിൽ മലയാളത്തിൽ ഒരു നോട്സ് ആയി തയ്യാറാക്കുക.\n\nVideo Transcript:\n{transcript_text[:100000]}"
         return model.generate_content(prompt).text
-    except Exception as e:
-        return "ക്ഷമിക്കണം, ഈ വീഡിയോയ്ക്ക് ട്രാൻസ്ക്രിപ്റ്റ് ലഭ്യമല്ലാത്തതിനാൽ നോട്സ് ഉണ്ടാക്കാൻ സാധിക്കില്ല."
+        
+    except:
+        # 2. സബ്‌ടൈറ്റിൽ ഇല്ലെങ്കിൽ നേരിട്ട് ഓഡിയോ കേൾക്കുന്നു! (Super Power)
+        try:
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            audio_file = f"audio_{video_id}.m4a"
+            
+            # എ. ഓഡിയോ മാത്രം ഡൗൺലോഡ് ചെയ്യുന്നു
+            ydl_opts = {'format': 'm4a/bestaudio/best', 'outtmpl': audio_file, 'quiet': True}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([video_url])
+            
+            # ബി. ഓഡിയോ ഫയൽ Gemini-ലേക്ക് നൽകുന്നു
+            sample_file = genai.upload_file(path=audio_file)
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            prompt = f"ഈ ഓഡിയോ ക്ലാസ്സിൽ നിന്നും {exam_name} പരീക്ഷയ്ക്ക് പഠിക്കുന്ന വിദ്യാർത്ഥിക്ക് വേണ്ട കൃത്യമായ വിവരങ്ങൾ മാത്രം പോയിന്റ് അടിസ്ഥാനത്തിൽ മലയാളത്തിൽ ഒരു നോട്സ് ആയി തയ്യാറാക്കുക. പ്രധാനപ്പെട്ടവ ബോൾഡ് ചെയ്യുക."
+            
+            response = model.generate_content([prompt, sample_file])
+            
+            # സി. ഫയലുകൾ ഡിലീറ്റ് ചെയ്യുന്നു (To save space)
+            genai.delete_file(sample_file.name)
+            if os.path.exists(audio_file):
+                os.remove(audio_file)
+                
+            return response.text
+            
+        except Exception as e:
+            return f"ക്ഷമിക്കണം, ഈ വീഡിയോയുടെ ഓഡിയോ എടുക്കാൻ സാധിച്ചില്ല. Error: {e}"
 
 # ==========================================
 # 5. SIDEBAR CONTROLS (തിരികെ കൊണ്ടുവന്നത്!)
