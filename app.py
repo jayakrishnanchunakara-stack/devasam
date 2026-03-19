@@ -187,12 +187,20 @@ def generate_note_from_video(video_id, exam_name):
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             audio_file = f"audio_{video_id}.m4a"
             
-            # എ. ഓഡിയോ മാത്രം ഡൗൺലോഡ് ചെയ്യുന്നു (403 Error Bypass ഉൾപ്പെടെ)
+            # എ. ഓഡിയോ മാത്രം ഡൗൺലോഡ് ചെയ്യുന്നു (Ultimate 403 Bypass)
             ydl_opts = {
-                'format': 'm4a/bestaudio/best', 
-                'outtmpl': audio_file, 
+                'format': 'bestaudio/best',
+                'outtmpl': audio_file,
                 'quiet': True,
-                'extractor_args': {'youtube': {'player_client': ['android', 'web']}} # യൂട്യൂബിനെ പറ്റിക്കാനുള്ള വരി
+                'nocheckcertificate': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android'] # വെബ് ഒഴിവാക്കി പൂർണ്ണമായും ആൻഡ്രോയിഡ് ആക്കുന്നു
+                    }
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+                }
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
